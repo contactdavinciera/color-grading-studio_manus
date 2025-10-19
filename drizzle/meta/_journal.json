@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1760895454953,
+      "tag": "0000_massive_machine_man",
+      "breakpoints": true
+    }
+  ]
 }
