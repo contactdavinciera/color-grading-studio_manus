@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { getRAWDecoder } from './rawDecoder';
 
 const execAsync = promisify(exec);
 
@@ -134,12 +135,32 @@ export class BRAWProcessor {
     try {
       console.log(`[BRAW] Extracting frame at ${timestamp}s from ${fileId}`);
       
-      // Extract frame using FFmpeg
       const outputPath = path.join(this.cacheDir, `${cacheKey}.jpg`);
+      const decoder = await getRAWDecoder();
+      const jpegQuality = quality === 'low' ? 70 : quality === 'medium' ? 85 : 95;
       
-      await execAsync(
-        `ffmpeg -ss ${timestamp} -i "${filePath}" -vframes 1 -vf scale=${scale} -q:v ${qValue} "${outputPath}" -y`
-      );
+      // Try RAW decoder first (supports BRAW, DNG, CR2, etc)
+      try {
+        if (timestamp > 0) {
+          await decoder.extractBRAWFrameAtTime(filePath, outputPath, timestamp, jpegQuality);
+        } else {
+          await decoder.decodeToJPEG(filePath, outputPath, { quality: jpegQuality });
+        }
+        
+        // If scale is needed, apply it
+        if (scale !== '-1:-1') {
+          const scaledPath = outputPath.replace('.jpg', '_scaled.jpg');
+          await execAsync(`ffmpeg -i "${outputPath}" -vf scale=${scale} -q:v ${qValue} "${scaledPath}" -y`);
+          await fs.rename(scaledPath, outputPath);
+        }
+      } catch (decoderError) {
+        console.log('[BRAW] RAW decoder failed, trying FFmpeg fallback:', decoderError);
+        
+        // Fallback to FFmpeg
+        await execAsync(
+          `ffmpeg -ss ${timestamp} -i "${filePath}" -vframes 1 -vf scale=${scale} -q:v ${qValue} "${outputPath}" -y`
+        );
+      }
 
       const frameBuffer = await fs.readFile(outputPath);
       this.addToCache(cacheKey, frameBuffer);
@@ -148,7 +169,7 @@ export class BRAWProcessor {
       return frameBuffer;
     } catch (error) {
       console.error('[BRAW] Failed to extract frame:', error);
-      throw error;
+      throw new Error(`Frame extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
