@@ -96,39 +96,34 @@ export default function StudioWorking() {
           try {
             console.log('Uploading BRAW to server for processing...');
             
-            // Read file as base64
-            const reader = new FileReader();
-            const fileData = await new Promise<string>((resolve, reject) => {
-              reader.onload = () => {
-                const base64 = (reader.result as string).split(',')[1];
-                resolve(base64);
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
+            // Upload via multipart/form-data
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            console.log('Uploading BRAW file via HTTP...');
+            const uploadResponse = await fetch('/api/braw/upload', {
+              method: 'POST',
+              body: formData,
             });
             
-            console.log('Uploading BRAW file...');
-            const uploadResult = await uploadBRAW.mutateAsync({
-              fileName: file.name,
-              fileData,
-            });
+            if (!uploadResponse.ok) {
+              const errorText = await uploadResponse.text();
+              throw new Error(`Upload failed: ${uploadResponse.statusText} - ${errorText}`);
+            }
             
+            const uploadResult = await uploadResponse.json();
             console.log('BRAW uploaded:', uploadResult);
             
             // Extract first frame
             console.log('Extracting first frame...');
-            const frameResult = await utils.client.braw.extractFrame.query({
-              fileId: uploadResult.fileId,
-              timestamp: 0,
-              quality: 'medium',
-            });
+            const frameUrl = `/api/braw/frame/${uploadResult.fileId}/0?quality=medium`;
             
-            // Convert base64 to image
+            // Load frame as image
             const img = new Image();
             await new Promise((resolve, reject) => {
               img.onload = resolve;
               img.onerror = reject;
-              img.src = `data:image/jpeg;base64,${frameResult.data}`;
+              img.src = frameUrl;
             });
             
             sourceImageRef.current = img;

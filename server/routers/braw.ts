@@ -5,6 +5,39 @@ import { TRPCError } from '@trpc/server';
 
 export const brawRouter = router({
   /**
+   * Get presigned URL for direct S3 upload
+   */
+  getUploadUrl: publicProcedure
+    .input(
+      z.object({
+        fileName: z.string(),
+        fileSize: z.number(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const processor = await getBRAWProcessor();
+        const fileId = await processor.generateFileId();
+        const uploadPath = `braw-uploads/${fileId}/${input.fileName}`;
+        
+        // Generate presigned URL for upload
+        const { storagePut } = await import('../storage');
+        
+        return {
+          fileId,
+          uploadPath,
+          // For now, client will upload via file input and we'll process from there
+          // In production, use presigned S3 URL
+        };
+      } catch (error) {
+        console.error('[BRAW API] Get upload URL failed:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to generate upload URL',
+        });
+      }
+    }),
+  /**
    * Upload BRAW file
    */
   upload: publicProcedure

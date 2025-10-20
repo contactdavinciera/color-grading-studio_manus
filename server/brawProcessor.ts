@@ -45,10 +45,17 @@ export class BRAWProcessor {
   }
 
   /**
+   * Generate unique file ID
+   */
+  async generateFileId(): Promise<string> {
+    return crypto.randomBytes(16).toString('hex');
+  }
+
+  /**
    * Save uploaded BRAW file
    */
   async saveUpload(buffer: Buffer, originalName: string): Promise<string> {
-    const fileId = crypto.randomBytes(16).toString('hex');
+    const fileId = await this.generateFileId();
     const ext = path.extname(originalName);
     const filePath = path.join(this.uploadDir, `${fileId}${ext}`);
     
