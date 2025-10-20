@@ -19,17 +19,22 @@ import {
 import { WebGLEngine } from '@/lib/webgl/WebGLEngine';
 
 /**
- * Color Grading Studio - Working Version with Engine Integration
+ * Color Grading Studio - Working Version with Image & Video Support
  */
 export default function StudioWorking() {
   const viewerRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<WebGLEngine | null>(null);
   const sourceImageRef = useRef<HTMLImageElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [selectedTab, setSelectedTab] = useState('primary');
   const [hasImage, setHasImage] = useState(false);
+  const [isVideo, setIsVideo] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   
   // Primary controls state
   const [contrast, setContrast] = useState(0);
@@ -74,54 +79,107 @@ export default function StudioWorking() {
     
     try {
       const url = URL.createObjectURL(file);
-      const img = new Image();
+      const fileType = file.type;
       
-      img.onload = () => {
-        sourceImageRef.current = img;
-        setHasImage(true);
+      // Check if video
+      if (fileType.startsWith('video/')) {
+        const video = document.createElement('video');
+        video.src = url;
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
         
-        // Resize canvas to match image
-        if (viewerRef.current) {
-          const maxWidth = viewerRef.current.parentElement?.clientWidth || 800;
-          const maxHeight = viewerRef.current.parentElement?.clientHeight || 600;
+        video.onloadedmetadata = () => {
+          videoRef.current = video;
+          setIsVideo(true);
+          setHasImage(true);
+          setDuration(video.duration);
           
-          let width = img.width;
-          let height = img.height;
-          
-          // Scale to fit
-          if (width > maxWidth) {
-            height = (height * maxWidth) / width;
-            width = maxWidth;
+          // Resize canvas to match video
+          if (viewerRef.current) {
+            const maxWidth = viewerRef.current.parentElement?.clientWidth || 800;
+            const maxHeight = viewerRef.current.parentElement?.clientHeight || 600;
+            
+            let width = video.videoWidth;
+            let height = video.videoHeight;
+            
+            // Scale to fit
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+            
+            viewerRef.current.width = width;
+            viewerRef.current.height = height;
           }
-          if (height > maxHeight) {
-            width = (width * maxHeight) / height;
-            height = maxHeight;
+          
+          // Render first frame
+          video.currentTime = 0;
+        };
+        
+        video.onseeked = () => {
+          renderImage();
+        };
+        
+        video.ontimeupdate = () => {
+          setCurrentTime(video.currentTime);
+        };
+      } else {
+        // Image
+        const img = new Image();
+        
+        img.onload = () => {
+          sourceImageRef.current = img;
+          setIsVideo(false);
+          setHasImage(true);
+          
+          // Resize canvas to match image
+          if (viewerRef.current) {
+            const maxWidth = viewerRef.current.parentElement?.clientWidth || 800;
+            const maxHeight = viewerRef.current.parentElement?.clientHeight || 600;
+            
+            let width = img.width;
+            let height = img.height;
+            
+            // Scale to fit
+            if (width > maxWidth) {
+              height = (height * maxWidth) / width;
+              width = maxWidth;
+            }
+            if (height > maxHeight) {
+              width = (width * maxHeight) / height;
+              height = maxHeight;
+            }
+            
+            viewerRef.current.width = width;
+            viewerRef.current.height = height;
           }
           
-          viewerRef.current.width = width;
-          viewerRef.current.height = height;
-        }
+          // Render initial image
+          renderImage();
+          
+          URL.revokeObjectURL(url);
+        };
         
-        // Render initial image
-        renderImage();
-        
-        URL.revokeObjectURL(url);
-      };
-      
-      img.src = url;
+        img.src = url;
+      }
     } catch (error) {
-      console.error('Failed to load image:', error);
+      console.error('Failed to load file:', error);
     }
   };
   
   const renderImage = () => {
-    if (!engineRef.current || !sourceImageRef.current || !viewerRef.current) return;
+    const source = isVideo ? videoRef.current : sourceImageRef.current;
+    if (!engineRef.current || !source || !viewerRef.current) return;
     
     const gl = engineRef.current.getContext();
     const canvas = viewerRef.current;
     
-    // Create texture from source image
-    const texture = engineRef.current.createTexture(sourceImageRef.current);
+    // Create texture from source
+    const texture = engineRef.current.createTexture(source);
     
     // Simple passthrough for now (will add effects later)
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -131,10 +189,9 @@ export default function StudioWorking() {
     gl.clear(gl.COLOR_BUFFER_BIT);
     
     // Draw texture to canvas
-    // For now, just draw the image directly
     const ctx = canvas.getContext('2d', { willReadFrequently: false });
     if (ctx) {
-      ctx.drawImage(sourceImageRef.current, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
       
       // Apply simple adjustments
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -176,10 +233,50 @@ export default function StudioWorking() {
   
   // Re-render when parameters change
   useEffect(() => {
-    if (hasImage) {
+    if (hasImage && !isPlaying) {
       renderImage();
     }
   }, [contrast, saturation, exposure, hasImage]);
+  
+  // Handle video playback
+  useEffect(() => {
+    if (isPlaying && videoRef.current) {
+      videoRef.current.play();
+      
+      const renderLoop = () => {
+        if (isPlaying && videoRef.current && !videoRef.current.paused) {
+          renderImage();
+          animationFrameRef.current = requestAnimationFrame(renderLoop);
+        }
+      };
+      
+      renderLoop();
+    } else if (videoRef.current) {
+      videoRef.current.pause();
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    }
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [isPlaying]);
+  
+  const handleSeek = (value: number[]) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = value[0];
+      setCurrentTime(value[0]);
+    }
+  };
+  
+  const togglePlayback = () => {
+    if (isVideo) {
+      setIsPlaying(!isPlaying);
+    }
+  };
   
   const toggleFullscreen = async () => {
     if (!isFullscreen) {
@@ -201,6 +298,12 @@ export default function StudioWorking() {
         </div>
         
         <div className="flex-1" />
+        
+        {isVideo && (
+          <span className="text-xs text-green-500">
+            ✓ Video loaded - {duration.toFixed(1)}s
+          </span>
+        )}
         
         <div className="flex items-center gap-2">
           <label htmlFor="file-upload">
@@ -252,8 +355,34 @@ export default function StudioWorking() {
                 <div className="text-center text-gray-500">
                   <Upload className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p>Click Import to load an image or video</p>
-                  <p className="text-sm mt-2">Supports: JPG, PNG, MP4, MOV</p>
+                  <p className="text-sm mt-2">Supports: JPG, PNG, MP4, MOV, WEBM</p>
                 </div>
+              </div>
+            )}
+            
+            {/* Video Controls */}
+            {isVideo && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 px-4 py-2 rounded-lg">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={togglePlayback}
+                >
+                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </Button>
+                
+                <div className="w-64">
+                  <Slider 
+                    value={[currentTime]} 
+                    max={duration} 
+                    step={0.1}
+                    onValueChange={handleSeek}
+                  />
+                </div>
+                
+                <span className="text-xs text-gray-400">
+                  {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+                </span>
               </div>
             )}
           </div>
