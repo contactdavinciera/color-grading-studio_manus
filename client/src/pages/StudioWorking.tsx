@@ -19,6 +19,7 @@ import {
 import { WebGLEngine } from '@/lib/webgl/WebGLEngine';
 import MetadataPanel from '@/components/MetadataPanel';
 import { MetadataExtractor, type ExtractedMetadata } from '@/lib/metadata/MetadataExtractor';
+import { getBRAWDecoder } from '@/lib/raw/BRAWDecoder';
 
 /**
  * Color Grading Studio - Working Version with Image & Video Support
@@ -80,12 +81,61 @@ export default function StudioWorking() {
       
       if (isRaw || isCinemaRaw) {
         console.log('RAW file detected:', file.name);
-        alert(`RAW file detected: ${file.name}\n\nRAW processing is being implemented. For now, please convert to DNG or export a proxy file.`);
         
-        // Extract metadata anyway
+        // Extract metadata
         const meta = await MetadataExtractor.extract(file);
         setMetadata(meta);
         console.log('RAW metadata:', meta);
+        
+        // Try to decode BRAW
+        if (file.name.toLowerCase().endsWith('.braw')) {
+          try {
+            console.log('Attempting to decode BRAW...');
+            const decoder = getBRAWDecoder();
+            
+            // Show loading message
+            alert('Decoding BRAW file... This may take a moment.');
+            
+            // Decode first frame
+            const img = await decoder.decodeFirstFrame(file);
+            
+            sourceImageRef.current = img;
+            setIsVideo(false);
+            setHasImage(true);
+            
+            // Resize canvas
+            if (viewerRef.current) {
+              const maxWidth = viewerRef.current.parentElement?.clientWidth || 800;
+              const maxHeight = viewerRef.current.parentElement?.clientHeight || 600;
+              
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > maxWidth) {
+                height = (height * maxWidth) / width;
+                width = maxWidth;
+              }
+              if (height > maxHeight) {
+                width = (width * maxHeight) / height;
+                height = maxHeight;
+              }
+              
+              viewerRef.current.width = width;
+              viewerRef.current.height = height;
+            }
+            
+            renderImage(img);
+            console.log('BRAW decoded successfully!');
+            return;
+          } catch (error) {
+            console.error('Failed to decode BRAW:', error);
+            alert(`Failed to decode BRAW: ${error}\n\nPlease convert to DNG or export a proxy file.`);
+            return;
+          }
+        }
+        
+        // For other RAW formats
+        alert(`RAW file detected: ${file.name}\n\nRAW processing is being implemented. For now, please convert to DNG or export a proxy file.`);
         return;
       }
       
