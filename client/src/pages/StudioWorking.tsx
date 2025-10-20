@@ -71,7 +71,24 @@ export default function StudioWorking() {
     const file = e.target.files?.[0];
     if (!file || !viewerRef.current) return;
     
+    console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
+    
     try {
+      // Check if it's a RAW format
+      const isRaw = MetadataExtractor.isRawFormat(file);
+      const isCinemaRaw = MetadataExtractor.isCinemaRaw(file);
+      
+      if (isRaw || isCinemaRaw) {
+        console.log('RAW file detected:', file.name);
+        alert(`RAW file detected: ${file.name}\n\nRAW processing is being implemented. For now, please convert to DNG or export a proxy file.`);
+        
+        // Extract metadata anyway
+        const meta = await MetadataExtractor.extract(file);
+        setMetadata(meta);
+        console.log('RAW metadata:', meta);
+        return;
+      }
+      
       const url = URL.createObjectURL(file);
       const fileType = file.type;
       
@@ -348,7 +365,7 @@ export default function StudioWorking() {
           <input
             id="file-upload"
             type="file"
-            accept="image/*,video/*"
+            accept="image/*,video/*,.braw,.r3d,.arriraw,.ari,.dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2"
             className="hidden"
             onChange={handleFileUpload}
           />
