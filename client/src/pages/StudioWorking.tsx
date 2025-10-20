@@ -41,22 +41,10 @@ export default function StudioWorking() {
   const [saturation, setSaturation] = useState(0);
   const [exposure, setExposure] = useState(0);
   
-  // Initialize WebGL engine
+  // WebGL engine will be initialized later when needed for advanced effects
+  // For now, we use Canvas 2D for basic processing
   useEffect(() => {
-    if (!viewerRef.current) return;
-    
-    try {
-      engineRef.current = new WebGLEngine({ canvas: viewerRef.current });
-      console.log('WebGL Engine initialized');
-    } catch (error) {
-      console.error('Failed to initialize WebGL:', error);
-    }
-    
-    return () => {
-      if (engineRef.current) {
-        engineRef.current.dispose();
-      }
-    };
+    console.log('Canvas ready for 2D rendering');
   }, []);
   
   // Auto-enter fullscreen
@@ -75,7 +63,7 @@ export default function StudioWorking() {
   
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !engineRef.current || !viewerRef.current) return;
+    if (!file || !viewerRef.current) return;
     
     try {
       const url = URL.createObjectURL(file);
@@ -85,14 +73,12 @@ export default function StudioWorking() {
       if (fileType.startsWith('video/')) {
         const video = document.createElement('video');
         video.src = url;
-        video.crossOrigin = 'anonymous';
         video.muted = true;
+        video.preload = 'auto';
+        video.playsInline = true;
         
         video.onloadedmetadata = () => {
-          videoRef.current = video;
-          setIsVideo(true);
-          setHasImage(true);
-          setDuration(video.duration);
+          console.log('Video metadata loaded:', video.videoWidth, 'x', video.videoHeight);
           
           // Resize canvas to match video
           if (viewerRef.current) {
@@ -114,19 +100,39 @@ export default function StudioWorking() {
             
             viewerRef.current.width = width;
             viewerRef.current.height = height;
+            
+            console.log('Canvas resized to:', width, 'x', height);
           }
           
-          // Render first frame
-          video.currentTime = 0;
+          // Set refs FIRST before updating state
+          videoRef.current = video;
+          setDuration(video.duration);
+        };
+        
+        video.onloadeddata = () => {
+          console.log('Video data loaded, rendering first frame');
+          // Now set state to trigger render
+          setIsVideo(true);
+          setHasImage(true);
+          
+          // Render with video directly
+          setTimeout(() => {
+            console.log('Calling renderImage with video:', video);
+            renderImage(video);
+          }, 100);
         };
         
         video.onseeked = () => {
-          renderImage();
+          console.log('Video seeked to:', video.currentTime);
+          renderImage(video);
         };
         
         video.ontimeupdate = () => {
           setCurrentTime(video.currentTime);
         };
+        
+        // Load the video
+        video.load();
       } else {
         // Image
         const img = new Image();
@@ -171,27 +177,35 @@ export default function StudioWorking() {
     }
   };
   
-  const renderImage = () => {
-    const source = isVideo ? videoRef.current : sourceImageRef.current;
-    if (!engineRef.current || !source || !viewerRef.current) return;
+  const renderImage = (sourceOverride?: HTMLImageElement | HTMLVideoElement) => {
+    const source = sourceOverride || (isVideo ? videoRef.current : sourceImageRef.current);
+    console.log('renderImage called, source:', source, 'isVideo:', isVideo);
     
-    const gl = engineRef.current.getContext();
+    if (!source || !viewerRef.current) {
+      console.log('Cannot render:', { source: !!source, viewerRef: !!viewerRef.current, isVideo });
+      return;
+    }
+    
+    // For video, check if it's ready
+    if (source instanceof HTMLVideoElement) {
+      console.log('Video readyState:', source.readyState, 'currentTime:', source.currentTime);
+      if (source.readyState < 2) {
+        console.log('Video not ready yet, waiting...');
+        return;
+      }
+    }
+    
+    console.log('Starting render...');
+    
     const canvas = viewerRef.current;
     
-    // Create texture from source
-    const texture = engineRef.current.createTexture(source);
-    
-    // Simple passthrough for now (will add effects later)
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    
-    // Clear
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    
-    // Draw texture to canvas
+    // Use Canvas 2D directly (WebGL will be added later for effects)
     const ctx = canvas.getContext('2d', { willReadFrequently: false });
+    console.log('Got 2D context:', !!ctx);
     if (ctx) {
+      console.log('Drawing to canvas:', canvas.width, 'x', canvas.height);
       ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+      console.log('Image drawn successfully');
       
       // Apply simple adjustments
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -228,6 +242,7 @@ export default function StudioWorking() {
       }
       
       ctx.putImageData(imageData, 0, 0);
+      console.log('Render complete!');
     }
   };
   
@@ -236,7 +251,7 @@ export default function StudioWorking() {
     if (hasImage && !isPlaying) {
       renderImage();
     }
-  }, [contrast, saturation, exposure, hasImage]);
+  }, [contrast, saturation, exposure, hasImage, isVideo]);
   
   // Handle video playback
   useEffect(() => {
