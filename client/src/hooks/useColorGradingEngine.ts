@@ -14,12 +14,12 @@ export interface ColorGradingState {
 }
 
 export function useColorGradingEngine(
-  viewerCanvasRef: React.RefObject<HTMLCanvasElement>,
+  viewerCanvasRef: React.RefObject<HTMLCanvasElement | null>,
   scopeCanvasRefs: {
-    waveform: React.RefObject<HTMLCanvasElement>;
-    vectorscope: React.RefObject<HTMLCanvasElement>;
-    parade: React.RefObject<HTMLCanvasElement>;
-    histogram: React.RefObject<HTMLCanvasElement>;
+    waveform: React.RefObject<HTMLCanvasElement | null>;
+    vectorscope: React.RefObject<HTMLCanvasElement | null>;
+    parade: React.RefObject<HTMLCanvasElement | null>;
+    histogram: React.RefObject<HTMLCanvasElement | null>;
   }
 ) {
   const renderEngineRef = useRef<RenderEngine | null>(null);
@@ -273,7 +273,7 @@ export function useColorGradingEngine(
   const getNodes = useCallback(() => {
     if (!nodeSystemRef.current) return [];
     return nodeSystemRef.current.getNodes();
-  }, []);
+  }, [nodeSystemRef.current]);
   
   /**
    * Get cache stats
