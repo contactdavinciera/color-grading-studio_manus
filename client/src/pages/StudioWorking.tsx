@@ -17,6 +17,8 @@ import {
   Eye
 } from 'lucide-react';
 import { WebGLEngine } from '@/lib/webgl/WebGLEngine';
+import MetadataPanel from '@/components/MetadataPanel';
+import { MetadataExtractor, type ExtractedMetadata } from '@/lib/metadata/MetadataExtractor';
 
 /**
  * Color Grading Studio - Working Version with Image & Video Support
@@ -40,6 +42,10 @@ export default function StudioWorking() {
   const [contrast, setContrast] = useState(0);
   const [saturation, setSaturation] = useState(0);
   const [exposure, setExposure] = useState(0);
+  
+  // Metadata state
+  const [metadata, setMetadata] = useState<ExtractedMetadata | null>(null);
+  const [metadataOverrides, setMetadataOverrides] = useState<any>({});
   
   // WebGL engine will be initialized later when needed for advanced effects
   // For now, we use Canvas 2D for basic processing
@@ -109,11 +115,16 @@ export default function StudioWorking() {
           setDuration(video.duration);
         };
         
-        video.onloadeddata = () => {
+        video.onloadeddata = async () => {
           console.log('Video data loaded, rendering first frame');
           // Now set state to trigger render
           setIsVideo(true);
           setHasImage(true);
+          
+          // Extract metadata
+          const meta = await MetadataExtractor.extract(file);
+          setMetadata(meta);
+          console.log('Extracted metadata:', meta);
           
           // Render with video directly
           setTimeout(() => {
@@ -137,10 +148,15 @@ export default function StudioWorking() {
         // Image
         const img = new Image();
         
-        img.onload = () => {
+        img.onload = async () => {
           sourceImageRef.current = img;
           setIsVideo(false);
           setHasImage(true);
+          
+          // Extract metadata
+          const meta = await MetadataExtractor.extract(file);
+          setMetadata(meta);
+          console.log('Extracted metadata:', meta);
           
           // Resize canvas to match image
           if (viewerRef.current) {
@@ -431,6 +447,10 @@ export default function StudioWorking() {
                 <Film className="w-4 h-4" />
                 Effects
               </TabsTrigger>
+              <TabsTrigger value="metadata" className="gap-2">
+                <Layers className="w-4 h-4" />
+                Metadata
+              </TabsTrigger>
             </TabsList>
             
             <div className="flex-1 overflow-y-auto p-4">
@@ -504,6 +524,14 @@ export default function StudioWorking() {
                   <h3 className="text-sm font-semibold mb-4">Effects</h3>
                   <p className="text-xs text-gray-500">Film grain, glow, and LUTs coming soon...</p>
                 </Card>
+              </TabsContent>
+              
+              <TabsContent value="metadata" className="mt-0 h-full">
+                <MetadataPanel 
+                  metadata={metadata}
+                  overrides={metadataOverrides}
+                  onOverrideChange={setMetadataOverrides}
+                />
               </TabsContent>
             </div>
           </Tabs>
