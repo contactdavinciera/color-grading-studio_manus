@@ -20,11 +20,15 @@ import { WebGLEngine } from '@/lib/webgl/WebGLEngine';
 import MetadataPanel from '@/components/MetadataPanel';
 import { MetadataExtractor, type ExtractedMetadata } from '@/lib/metadata/MetadataExtractor';
 import { getBRAWDecoder } from '@/lib/raw/BRAWDecoder';
+import { trpc } from '@/lib/trpc';
 
 /**
  * Color Grading Studio - Working Version with Image & Video Support
  */
 export default function StudioWorking() {
+  const uploadBRAW = trpc.braw.upload.useMutation();
+  const extractFrame = trpc.braw.extractFrame.useQuery;
+  const utils = trpc.useUtils();
   const viewerRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<WebGLEngine | null>(null);
   const sourceImageRef = useRef<HTMLImageElement | null>(null);
@@ -87,21 +91,53 @@ export default function StudioWorking() {
         setMetadata(meta);
         console.log('RAW metadata:', meta);
         
-        // Try to decode BRAW
+        // Try to decode BRAW using server-side processing
         if (file.name.toLowerCase().endsWith('.braw')) {
           try {
-            console.log('Attempting to decode BRAW...');
-            const decoder = getBRAWDecoder();
+            console.log('Uploading BRAW to server for processing...');
             
-            // Show loading message
-            alert('Decoding BRAW file... This may take a moment.');
+            // Read file as base64
+            const reader = new FileReader();
+            const fileData = await new Promise<string>((resolve, reject) => {
+              reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                resolve(base64);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            });
             
-            // Decode first frame
-            const img = await decoder.decodeFirstFrame(file);
+            console.log('Uploading BRAW file...');
+            const uploadResult = await uploadBRAW.mutateAsync({
+              fileName: file.name,
+              fileData,
+            });
+            
+            console.log('BRAW uploaded:', uploadResult);
+            
+            // Extract first frame
+            console.log('Extracting first frame...');
+            const frameResult = await utils.client.braw.extractFrame.query({
+              fileId: uploadResult.fileId,
+              timestamp: 0,
+              quality: 'medium',
+            });
+            
+            // Convert base64 to image
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+              img.src = `data:image/jpeg;base64,${frameResult.data}`;
+            });
             
             sourceImageRef.current = img;
-            setIsVideo(false);
+            setIsVideo(true); // Treat as video for playback
             setHasImage(true);
+            setDuration(uploadResult.info.duration);
+            
+            // Store fileId for later frame extraction
+            (window as any).brawFileId = uploadResult.fileId;
             
             // Resize canvas
             if (viewerRef.current) {
@@ -125,11 +161,11 @@ export default function StudioWorking() {
             }
             
             renderImage(img);
-            console.log('BRAW decoded successfully!');
+            console.log('BRAW frame rendered successfully!');
             return;
           } catch (error) {
-            console.error('Failed to decode BRAW:', error);
-            alert(`Failed to decode BRAW: ${error}\n\nPlease convert to DNG or export a proxy file.`);
+            console.error('Failed to process BRAW:', error);
+            alert(`Failed to process BRAW: ${error}\n\nPlease try again or convert to DNG.`);
             return;
           }
         }
