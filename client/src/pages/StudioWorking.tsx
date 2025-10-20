@@ -278,7 +278,7 @@ export default function StudioWorking() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, contrast, saturation, exposure]); // Re-render when parameters change
   
   const handleSeek = (value: number[]) => {
     if (videoRef.current) {
