@@ -3,6 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
+import { useBRAW } from '@/hooks/useBRAW';
+import { WebGLEngine } from '@/lib/webgl/WebGLEngine';
+import { vertexShaderSource, fragmentShaderSource } from '@/lib/webgl/shaders';
+
 import { 
   Play, 
   Pause, 
@@ -25,38 +29,124 @@ export default function Studio() {
   const viewerRef = useRef<HTMLCanvasElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [selectedTab, setSelectedTab] = useState('primary');
-  
+  const [selectedTab, setSelectedTab] = useState("primary");
+  const { file, uploadFile, extractFrame, isExtracting, currentFrame } = useBRAW();
+  const webGLEngineRef = useRef<WebGLEngine | null>(null);
+  const animationFrameId = useRef<number | null>(null);
+  const currentFrameIndex = useRef<number>(0);
+
   useEffect(() => {
-    // Initialize WebGL engine
     if (viewerRef.current) {
-      // TODO: Initialize engine
+      webGLEngineRef.current = new WebGLEngine({
+        canvas: viewerRef.current,
+      });
+      // Set initial size
+      webGLEngineRef.current.resize(viewerRef.current.clientWidth, viewerRef.current.clientHeight);
     }
-    
-    // Auto-enter fullscreen on load
-    const enterFullscreen = async () => {
-      try {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      } catch (err) {
-        console.log('Fullscreen not available');
+
+    const handleResize = () => {
+      if (webGLEngineRef.current && viewerRef.current) {
+        webGLEngineRef.current.resize(viewerRef.current.clientWidth, viewerRef.current.clientHeight);
       }
     };
-    
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      webGLEngineRef.current?.dispose();
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isPlaying || !file || !webGLEngineRef.current) {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      return;
+    }
+
+    let lastFrameTime = 0;
+    const frameRate = file.metadata.fps || 24; // Default to 24 FPS if not available
+    const frameDuration = 1000 / frameRate; // Milliseconds per frame
+
+    const renderFrame = async (timestamp: DOMHighResTimeStamp) => {
+      if (!isPlaying || !file) return;
+
+      if (timestamp - lastFrameTime >= frameDuration) {
+        lastFrameTime = timestamp;
+        
+        const frameToExtract = currentFrameIndex.current % file.metadata.frameCount;
+        await extractFrame(frameToExtract);
+
+        currentFrameIndex.current = (currentFrameIndex.current + 1) % file.metadata.frameCount;
+      }
+
+      animationFrameId.current = requestAnimationFrame(renderFrame);
+    };
+
+    animationFrameId.current = requestAnimationFrame(renderFrame);
+
+    return () => {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    };
+  }, [isPlaying, file, extractFrame]);
+
+  useEffect(() => {
+    if (currentFrame && webGLEngineRef.current && viewerRef.current) {
+      const gl = webGLEngineRef.current.getContext();
+      const program = webGLEngineRef.current.createProgram(vertexShaderSource, fragmentShaderSource);
+
+      const img = new Image();
+      img.onload = () => {
+        const texture = webGLEngineRef.current?.createTexture(img);
+        if (texture) {
+          webGLEngineRef.current?.render(program, { u_image: texture });
+        }
+      };
+      img.src = currentFrame;
+    }
+  }, [currentFrame]);
+
+  // Auto-enter fullscreen on load
+  const enterFullscreen = async () => {
+    try {
+      await document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+    } catch (err) {
+      console.log("Fullscreen not available");
+    }
+  };
+
+  useEffect(() => {
     // Delay to allow user interaction
     const timer = setTimeout(() => {
       enterFullscreen();
     }, 1000);
-    
+
+    return () => clearTimeout(timer);
+  }, []);fect(() => {
+    // Delay to allow user interaction
+    const timer = setTimeout(() => {
+      enterFullscreen();
+    }, 1000);
+
     return () => clearTimeout(timer);
   }, []);
-  
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    // TODO: Load file into engine
-    console.log('Loading file:', file.name);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    console.log("Uploading file:", selectedFile.name);
+    await uploadFile(selectedFile);
   };
   
   const toggleFullscreen = async () => {

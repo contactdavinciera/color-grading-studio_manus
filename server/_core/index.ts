@@ -6,8 +6,12 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
 import brawUploadRouter from "../brawUpload";
+import path from "path";
+
+// Using process.cwd() as a workaround for __dirname in esbuild context
+// This assumes the server is run from the project root.
+const projectRoot = process.cwd();
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -29,11 +33,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  const app = express();
+    console.log(`[Server] NODE_ENV: ${process.env.NODE_ENV}`);
+    const app = express();
   const server = createServer(app);
+  server.timeout = 600000; // 10 minutes
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: "1gb" }));
+  app.use(express.urlencoded({ limit: "1gb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // BRAW upload endpoint (multipart, before tRPC)
@@ -48,8 +54,10 @@ async function startServer() {
   );
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    const { setupVite } = await import("./vite");
     await setupVite(app, server);
   } else {
+    const { serveStatic } = await import("./vite");
     serveStatic(app);
   }
 
@@ -66,3 +74,4 @@ async function startServer() {
 }
 
 startServer().catch(console.error);
+
